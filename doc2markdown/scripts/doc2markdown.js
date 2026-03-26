@@ -312,6 +312,10 @@ class Doc2Markdown {
                 const data = buffer.slice(dataStart, dataStart + csize);
 
                 const outPath = path.join(outDir, ent.name.replace(/\\/g, '/'));
+                const safeOutDir = path.resolve(outDir) + path.sep;
+                if (!path.resolve(outPath).startsWith(safeOutDir)) {
+                    throw new Error(`不安全的ZIP条目路径（路径穿越）: ${ent.name}`);
+                }
                 const outDirPath = path.dirname(outPath);
                 if (!fs.existsSync(outDirPath)) fs.mkdirSync(outDirPath, { recursive: true });
 

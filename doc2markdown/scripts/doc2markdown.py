@@ -125,8 +125,13 @@ class Doc2Markdown:
             markdown_dir_name = f"{file_id}_" + os.path.splitext(os.path.basename(file_path))[0]
             out_dir = os.path.join(parent_dir, markdown_dir_name)
             os.makedirs(out_dir, exist_ok=True)
+            safe_out_dir = os.path.realpath(out_dir) + os.sep
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-                z.extractall(out_dir)
+                for member in z.infolist():
+                    member_path = os.path.realpath(os.path.join(out_dir, member.filename))
+                    if not member_path.startswith(safe_out_dir):
+                        raise Exception(f"不安全的ZIP条目路径（路径穿越）: {member.filename}")
+                    z.extract(member, out_dir)
             return out_dir
         except Exception as e:
             print(f"保存文件时发生错误: {str(e)}")
