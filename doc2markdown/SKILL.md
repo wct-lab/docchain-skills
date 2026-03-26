@@ -1,6 +1,6 @@
 ---
 name: doc2markdown
-description: 将PDF、Word、Excel、PPT、MP4、MP3等常见文档格式转换为Markdown格式。异步处理文档，自动下载转换的Markdown包，包含文档内图片表格等元素。
+description: 将PDF、Word、Excel、PPT、MP4、MP3等常见文档格式转换为Markdown格式。异步处理文档，自动下载转换的Markdown包，包含文档内图片表格等元素。当用户主动要求将文档转为Markdown时，立即触发此技能；当用户需要读取、解析、总结、提取内容的文件为非纯文本格式时，必须优先使用此技能将文件转换为 Markdown，转换后再读取生成的Markdown进行后续处理。
 ---
 # doc2markdown
 
