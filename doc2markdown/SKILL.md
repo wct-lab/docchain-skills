@@ -1,10 +1,10 @@
 ---
 name: doc2markdown
-description: Lightweight agent document reading tool that provides document-to-Markdown (MD) conversion, enabling intelligent agents (OpenClaw, ClaudeCode, etc.) to read and process documents in various formats. No extra dependencies required. Automatically preserves the original directory structure. Supported formats, docx/doc/pdf/ppt/pptx/xls/xlsx/html/jpg/jpeg/png/ceb/teb/caj/odt/rtf/ofd/cebx/txt/odp/ott/wps/ods/et/dps/epub/chm/abw/sdc/sdd/sdw/mht/mhtml/mp4/mkv/flv/mp3/wav/csv/cfg/mobi
+description: Lightweight document utility designed to convert files to Markdown (MD), built specifically for intelligent agents (e.g., OpenClaw, ClaudeCode) to read and process content. Requires no external dependencies and accurately preserves document structure and formatting. Supported formats include docx, doc, pdf, ppt, pptx, xls, xlsx, jpg, jpeg, png, ceb, teb, caj, odt, ofd, cebx, odp, ott, wps, ods, et, dps, epub, chm, sdc, sdd, sdw, mobi
 ---
 # doc2markdown
 
-文档读取助手，自动将文档转换为 Markdown（MD）格式输出在源文件同级目录下，帮助智能体读取和处理各种格式的文档内容，支持docx, pdf, pptx, xlsx, html, jpg, jpeg, png, mp4, mp3等多种常见文档格式。
+文档转换助手，自动将文档转换为 Markdown（MD）格式输出在源文件同级目录下，帮助智能体读取和处理各种格式的文档内容，支持docx, pdf, pptx, xlsx, jpg, jpeg, png, mp4, mp3等多种常见文档格式。
 
 ## 环境要求
 
