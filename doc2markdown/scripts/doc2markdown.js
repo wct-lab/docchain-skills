@@ -9,17 +9,106 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { exec } = require('child_process');
-const { promisify } = require('util');
-
-const execAsync = promisify(exec);
 
 const POLL_INTERVAL = 3;   // 轮询间隔（秒）
 const POLL_TIMEOUT = 60;   // 自动等待上限（秒）
 
 class Doc2Markdown {
     constructor() {
-        this.BASE_URL = "https://lab.hjcloud.com/llmdoc/v1";
+        this.BASE_URL = "https://lab.hjcloud.com/llmdoc";
+    }
+
+    /**
+     * 解压zip到源文件同级目录，返回输出目录路径
+     * @param {Buffer} zipBytes
+     * @param {string} docId
+     * @param {string} filePath
+     * @returns {Promise<string|null>}
+     */
+    async saveMarkdown(zipBytes, docId, filePath) {
+        try {
+            const parentDir = path.dirname(path.resolve(filePath));
+            const [fileId] = docId.split('-');
+            const markdownDirName = `${fileId}_` + path.parse(filePath).name;
+            const outDir = path.join(parentDir, markdownDirName);
+
+            if (!fs.existsSync(outDir)) {
+                fs.mkdirSync(outDir, { recursive: true });
+            }
+
+            const zlib = require('zlib');
+            const { pipeline } = require('stream/promises');
+
+            // 临时保存 zip
+            const tempZip = path.join(outDir, `temp_${Date.now()}.zip`);
+            fs.writeFileSync(tempZip, zipBytes);
+
+            // 原生解析 ZIP 中央目录
+            const buffer = fs.readFileSync(tempZip);
+            let pos = buffer.length - 22;
+            while (pos > 0) {
+                if (
+                    buffer.readUInt32LE(pos) === 0x06054b50 &&
+                    pos + 22 <= buffer.length
+                )
+                    break;
+                pos--;
+            }
+
+            const entries = [];
+            const diskEntries = buffer.readUInt16LE(pos + 8);
+            const dirStart = buffer.readUInt32LE(pos + 16);
+            pos = dirStart;
+
+            for (let i = 0; i < diskEntries; i++) {
+                if (buffer.readUInt32LE(pos) !== 0x02014b50) break;
+                const flags = buffer.readUInt16LE(pos + 8);
+                const method = buffer.readUInt16LE(pos + 10);
+                const nameLen = buffer.readUInt16LE(pos + 28);
+                const extraLen = buffer.readUInt16LE(pos + 30);
+                const commentLen = buffer.readUInt16LE(pos + 32);
+                const offset = buffer.readUInt32LE(pos + 42);
+                const name = buffer.toString('utf8', pos + 46, pos + 46 + nameLen);
+                entries.push({ offset, method, name, encrypted: !!(flags & 1) });
+                pos += 46 + nameLen + extraLen + commentLen;
+            }
+
+            // 解压每个文件
+            for (const ent of entries) {
+                if (ent.encrypted || ent.name.endsWith('/')) continue;
+                const o = ent.offset;
+                const sig = buffer.readUInt32LE(o);
+                if (sig !== 0x04034b50) continue;
+                const nameLen = buffer.readUInt16LE(o + 26);
+                const extraLen = buffer.readUInt16LE(o + 28);
+                const csize = buffer.readUInt32LE(o + 18);
+                const usize = buffer.readUInt32LE(o + 14);
+                const dataStart = o + 30 + nameLen + extraLen;
+                const data = buffer.slice(dataStart, dataStart + csize);
+
+                const outPath = path.join(outDir, ent.name.replace(/\\/g, '/'));
+                const safeOutDir = path.resolve(outDir) + path.sep;
+                if (!path.resolve(outPath).startsWith(safeOutDir)) {
+                    throw new Error(`不安全的ZIP条目路径（路径穿越）: ${ent.name}`);
+                }
+                const outDirPath = path.dirname(outPath);
+                if (!fs.existsSync(outDirPath)) fs.mkdirSync(outDirPath, { recursive: true });
+
+                if (ent.method === 0) {
+                    fs.writeFileSync(outPath, data);
+                } else if (ent.method === 8) {
+                    const decompressed = zlib.inflateSync(data, { chunkSize: usize });
+                    fs.writeFileSync(outPath, decompressed);
+                }
+            }
+
+            fs.unlinkSync(tempZip);
+            return outDir;
+
+        } catch (error) {
+            console.log(`保存文件时发生错误: ${error.message}`);
+            return null;
+        }
     }
 
     /**
@@ -139,7 +228,7 @@ class Doc2Markdown {
             }
 
             const { body, boundary } = this.createMultipartFormData(filePath, asciiFilename);
-            const url = `${this.BASE_URL}/skills/doc2markdown/convert`;
+            const url = `${this.BASE_URL}/v1/skills/doc2markdown/convert`;
 
             const response = await this.request(url, {
                 method: 'POST',
@@ -183,7 +272,7 @@ class Doc2Markdown {
      */
     async checkStatus(docId) {
         try {
-            const url = `${this.BASE_URL}/skills/doc2markdown/check?doc_id=${encodeURIComponent(docId)}`;
+            const url = `${this.BASE_URL}/v1/skills/doc2markdown/check?doc_id=${encodeURIComponent(docId)}`;
 
             const response = await this.request(url, {
                 method: 'GET',
@@ -222,7 +311,7 @@ class Doc2Markdown {
      */
     async getMarkdown(docId) {
         try {
-            const url = `${this.BASE_URL}/skills/doc2markdown/download?doc_id=${encodeURIComponent(docId)}`;
+            const url = `${this.BASE_URL}/v1/skills/doc2markdown/download?doc_id=${encodeURIComponent(docId)}`;
 
             const response = await this.request(url, {
                 method: 'GET',
@@ -239,99 +328,6 @@ class Doc2Markdown {
 
         } catch (error) {
             console.log(`获取内容时发生错误: ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 解压zip到源文件同级目录，返回输出目录路径
-     * @param {Buffer} zipBytes
-     * @param {string} docId
-     * @param {string} filePath
-     * @returns {Promise<string|null>}
-     */
-    async saveMarkdown(zipBytes, docId, filePath) {
-        try {
-            const parentDir = path.dirname(path.resolve(filePath));
-            const [fileId] = docId.split('-');
-            const markdownDirName = `${fileId}_` + path.parse(filePath).name;
-            const outDir = path.join(parentDir, markdownDirName);
-
-            if (!fs.existsSync(outDir)) {
-                fs.mkdirSync(outDir, { recursive: true });
-            }
-
-            const zlib = require('zlib');
-            const { pipeline } = require('stream/promises');
-
-            // 临时保存 zip
-            const tempZip = path.join(outDir, `temp_${Date.now()}.zip`);
-            fs.writeFileSync(tempZip, zipBytes);
-
-            // 原生解析 ZIP 中央目录
-            const buffer = fs.readFileSync(tempZip);
-            let pos = buffer.length - 22;
-            while (pos > 0) {
-                if (
-                    buffer.readUInt32LE(pos) === 0x06054b50 &&
-                    pos + 22 <= buffer.length
-                )
-                    break;
-                pos--;
-            }
-
-            const entries = [];
-            const diskEntries = buffer.readUInt16LE(pos + 8);
-            const dirStart = buffer.readUInt32LE(pos + 16);
-            pos = dirStart;
-
-            for (let i = 0; i < diskEntries; i++) {
-                if (buffer.readUInt32LE(pos) !== 0x02014b50) break;
-                const flags = buffer.readUInt16LE(pos + 8);
-                const method = buffer.readUInt16LE(pos + 10);
-                const nameLen = buffer.readUInt16LE(pos + 28);
-                const extraLen = buffer.readUInt16LE(pos + 30);
-                const commentLen = buffer.readUInt16LE(pos + 32);
-                const offset = buffer.readUInt32LE(pos + 42);
-                const name = buffer.toString('utf8', pos + 46, pos + 46 + nameLen);
-                entries.push({ offset, method, name, encrypted: !!(flags & 1) });
-                pos += 46 + nameLen + extraLen + commentLen;
-            }
-
-            // 解压每个文件
-            for (const ent of entries) {
-                if (ent.encrypted || ent.name.endsWith('/')) continue;
-                const o = ent.offset;
-                const sig = buffer.readUInt32LE(o);
-                if (sig !== 0x04034b50) continue;
-                const nameLen = buffer.readUInt16LE(o + 26);
-                const extraLen = buffer.readUInt16LE(o + 28);
-                const csize = buffer.readUInt32LE(o + 18);
-                const usize = buffer.readUInt32LE(o + 14);
-                const dataStart = o + 30 + nameLen + extraLen;
-                const data = buffer.slice(dataStart, dataStart + csize);
-
-                const outPath = path.join(outDir, ent.name.replace(/\\/g, '/'));
-                const safeOutDir = path.resolve(outDir) + path.sep;
-                if (!path.resolve(outPath).startsWith(safeOutDir)) {
-                    throw new Error(`不安全的ZIP条目路径（路径穿越）: ${ent.name}`);
-                }
-                const outDirPath = path.dirname(outPath);
-                if (!fs.existsSync(outDirPath)) fs.mkdirSync(outDirPath, { recursive: true });
-
-                if (ent.method === 0) {
-                    fs.writeFileSync(outPath, data);
-                } else if (ent.method === 8) {
-                    const decompressed = zlib.inflateSync(data, { chunkSize: usize });
-                    fs.writeFileSync(outPath, decompressed);
-                }
-            }
-
-            fs.unlinkSync(tempZip);
-            return outDir;
-
-        } catch (error) {
-            console.log(`保存文件时发生错误: ${error.message}`);
             return null;
         }
     }
