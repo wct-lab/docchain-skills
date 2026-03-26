@@ -20,7 +20,7 @@ node scripts/doc2markdown.js check <文档ID> <原始文件路径>
 
 - 支持格式：docx, doc, pdf, ppt, pptx, xls, xlsx, jpg, jpeg, png, ceb, teb, caj, odt, ofd, cebx, odp, ott, wps, ods, et, dps, epub, chm, sdc, sdd, sdw, mobi 等
 - 保留文档结构、表格、图片
-- 无需 API Key 或账号
+- 无需 API Key 或账号，无需任何依赖
 - 输出目录：源文件同级目录下的 `{文档ID}_{文件名}/`
 
 ## 使用时机
@@ -53,4 +53,4 @@ node scripts/doc2markdown.js check <文档ID> <原始文件路径>
 ## 反馈与支持
 
 遇到解析、格式错误或其他问题，可以在 GitHub 提交 Issue：
-https://github.com/wct-lab/docchain-skills/issues
+https://github.com/wct-lab/docchain-skills
