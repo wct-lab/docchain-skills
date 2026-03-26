@@ -23,7 +23,7 @@ POLL_TIMEOUT = 60   # 自动等待上限（秒）
 
 class Doc2Markdown:
 
-    BASE_URL = "http://10.10.185.13:7100/llmdoc/v1"
+    BASE_URL = "https://lab.hjcloud.com/llmdoc/v1"
 
     def upload_file(self, file_path: str) -> Optional[str]:
         """上传文件到docchain服务，返回文档引用ID"""
