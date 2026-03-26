@@ -1,12 +1,12 @@
 ---
 name: doc2markdown
-description: 将PDF、Word、Excel、PPT、MP4、MP3等常见文档格式转换为Markdown格式。异步处理文档，自动下载转换的Markdown包，包含文档内图片表格等元素。当用户主动要求将文档转为Markdown时，立即触发此技能；当用户需要读取、解析、总结、提取内容的文件为非纯文本格式时，必须优先使用此技能将文件转换为 Markdown，转换后再读取生成的Markdown进行后续处理。
+description: Lightweight agent document reading tool that provides document-to-Markdown (MD) conversion, enabling intelligent agents (OpenClaw, ClaudeCode, etc.) to read and process documents in various formats. No extra dependencies required. Automatically preserves the original directory structure. Supported formats, docx/doc/pdf/ppt/pptx/xls/xlsx/html/jpg/jpeg/png/ceb/teb/caj/odt/rtf/ofd/cebx/txt/odp/ott/wps/ods/et/dps/epub/chm/abw/sdc/sdd/sdw/mht/mhtml/mp4/mkv/flv/mp3/wav/csv/cfg/mobi
 ---
 # doc2markdown
 
-文档转换助手，帮助用户将文档转换为Markdown格式，输出在源文件同级目录下，支持docx, pdf, pptx, xlsx, html, jpg, jpeg, png, mp4, mp3等多种常见文档格式。
+文档读取助手，自动将文档转换为 Markdown（MD）格式输出在源文件同级目录下，帮助智能体读取和处理各种格式的文档内容，支持docx, pdf, pptx, xlsx, html, jpg, jpeg, png, mp4, mp3等多种常见文档格式。
 
-## 依赖
+## 环境要求
 
 - Node.js 12.0+ (推荐) 或 Python 3.6+
 - Python 需要依赖: `requests`
@@ -47,14 +47,14 @@ python scripts/doc2markdown.py check <文档ID> <原始文件路径>
 
 ### 场景1：小文档（60秒内完成）
 ```
-用户：把 report.pdf 转成markdown
+用户：读取 report.pdf 
 助手：执行 node scripts/doc2markdown.js convert report.pdf
 结果：自动下载完成，文件保存在 123_report/
 ```
 
 ### 场景2：大文档（超过60秒）
 ```
-用户：转换这个大文件 big.pdf
+用户：转换这个文件 big.pdf
 助手：执行 node scripts/doc2markdown.js convert big.pdf
 结果：提示文档仍在解析中，文档ID: 456-abcd
      大文档需要更多时间，如遇系统高峰期需要排队解析，请耐心等待，是否继续检查转换状态
