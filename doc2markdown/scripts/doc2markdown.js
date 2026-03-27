@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * doc2markdown
- * 基于docchain远程服务实现多种格式文件转Markdown
- * 默认输出目录为源文件同级目录
+ * Convert multiple file formats to Markdown
+ * Default output directory is the same directory as the source file
  */
 const fs = require('fs');
 const path = require('path');
@@ -10,8 +10,8 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 
-const POLL_INTERVAL = 3;   // 轮询间隔（秒）
-const POLL_TIMEOUT = 60;   // 自动等待上限（秒）
+const POLL_INTERVAL = 3;   // Polling interval (seconds)
+const POLL_TIMEOUT = 60;   // Auto-polling timeout limit (seconds)
 
 class Doc2Markdown {
     constructor() {
@@ -19,100 +19,7 @@ class Doc2Markdown {
     }
 
     /**
-     * 解压zip到源文件同级目录，返回输出目录路径
-     * @param {Buffer} zipBytes
-     * @param {string} docId
-     * @param {string} filePath
-     * @returns {Promise<string|null>}
-     */
-    async saveMarkdown(zipBytes, docId, filePath) {
-        try {
-            const parentDir = path.dirname(path.resolve(filePath));
-            const [fileId] = docId.split('-');
-            const markdownDirName = `${fileId}_` + path.parse(filePath).name;
-            const outDir = path.join(parentDir, markdownDirName);
-
-            if (!fs.existsSync(outDir)) {
-                fs.mkdirSync(outDir, { recursive: true });
-            }
-
-            const zlib = require('zlib');
-            const { pipeline } = require('stream/promises');
-
-            // 临时保存 zip
-            const tempZip = path.join(outDir, `temp_${Date.now()}.zip`);
-            fs.writeFileSync(tempZip, zipBytes);
-
-            // 原生解析 ZIP 中央目录
-            const buffer = fs.readFileSync(tempZip);
-            let pos = buffer.length - 22;
-            while (pos > 0) {
-                if (
-                    buffer.readUInt32LE(pos) === 0x06054b50 &&
-                    pos + 22 <= buffer.length
-                )
-                    break;
-                pos--;
-            }
-
-            const entries = [];
-            const diskEntries = buffer.readUInt16LE(pos + 8);
-            const dirStart = buffer.readUInt32LE(pos + 16);
-            pos = dirStart;
-
-            for (let i = 0; i < diskEntries; i++) {
-                if (buffer.readUInt32LE(pos) !== 0x02014b50) break;
-                const flags = buffer.readUInt16LE(pos + 8);
-                const method = buffer.readUInt16LE(pos + 10);
-                const nameLen = buffer.readUInt16LE(pos + 28);
-                const extraLen = buffer.readUInt16LE(pos + 30);
-                const commentLen = buffer.readUInt16LE(pos + 32);
-                const offset = buffer.readUInt32LE(pos + 42);
-                const name = buffer.toString('utf8', pos + 46, pos + 46 + nameLen);
-                entries.push({ offset, method, name, encrypted: !!(flags & 1) });
-                pos += 46 + nameLen + extraLen + commentLen;
-            }
-
-            // 解压每个文件
-            for (const ent of entries) {
-                if (ent.encrypted || ent.name.endsWith('/')) continue;
-                const o = ent.offset;
-                const sig = buffer.readUInt32LE(o);
-                if (sig !== 0x04034b50) continue;
-                const nameLen = buffer.readUInt16LE(o + 26);
-                const extraLen = buffer.readUInt16LE(o + 28);
-                const csize = buffer.readUInt32LE(o + 18);
-                const usize = buffer.readUInt32LE(o + 14);
-                const dataStart = o + 30 + nameLen + extraLen;
-                const data = buffer.slice(dataStart, dataStart + csize);
-
-                const outPath = path.join(outDir, ent.name.replace(/\\/g, '/'));
-                const safeOutDir = path.resolve(outDir) + path.sep;
-                if (!path.resolve(outPath).startsWith(safeOutDir)) {
-                    throw new Error(`不安全的ZIP条目路径（路径穿越）: ${ent.name}`);
-                }
-                const outDirPath = path.dirname(outPath);
-                if (!fs.existsSync(outDirPath)) fs.mkdirSync(outDirPath, { recursive: true });
-
-                if (ent.method === 0) {
-                    fs.writeFileSync(outPath, data);
-                } else if (ent.method === 8) {
-                    const decompressed = zlib.inflateSync(data, { chunkSize: usize });
-                    fs.writeFileSync(outPath, decompressed);
-                }
-            }
-
-            fs.unlinkSync(tempZip);
-            return outDir;
-
-        } catch (error) {
-            console.log(`保存文件时发生错误: ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 发送HTTP请求
+     * Send HTTP request
      * @param {string} url
      * @param {object} options
      * @returns {Promise<{status: number, data: any}>}
@@ -179,7 +86,7 @@ class Doc2Markdown {
     }
 
     /**
-     * 生成multipart/form-data格式的请求体
+     * Generate multipart/form-data format request body
      * @param {string} filePath
      * @param {string} filename
      * @returns {{body: Buffer, boundary: string}}
@@ -190,7 +97,7 @@ class Doc2Markdown {
 
         const parts = [];
 
-        // 添加文件字段
+        // Add file field
         parts.push(
             `--${boundary}\r\n` +
             `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
@@ -200,7 +107,7 @@ class Doc2Markdown {
         parts.push(fileContent);
         parts.push(`\r\n--${boundary}--\r\n`);
 
-        // 合并所有部分
+        // Merge all parts
         const buffers = parts.map(part =>
             Buffer.isBuffer(part) ? part : Buffer.from(part, 'utf8')
         );
@@ -211,13 +118,13 @@ class Doc2Markdown {
     }
 
     /**
-     * 上传文件到docchain服务，返回文档引用ID
+     * Upload file to docchain service, return document reference ID
      * @param {string} filePath
      * @returns {Promise<string|null>}
      */
     async uploadFile(filePath) {
         if (!fs.existsSync(filePath)) {
-            console.log(`错误: 文件不存在 - ${filePath}`);
+            console.log(`Error: File does not exist - ${filePath}`);
             return null;
         }
 
@@ -243,30 +150,30 @@ class Doc2Markdown {
             if (response.status === 200) {
                 const responseJson = response.data;
                 if (!responseJson.success && responseJson.success !== undefined) {
-                    console.log(`API请求失败: ${responseJson.err}`);
+                    console.log(`API request failed: ${responseJson.err}`);
                     return null;
                 }
                 const docId = responseJson.doc_id;
                 if (docId) {
                     return docId;
                 } else {
-                    console.log(`上传成功但未获取到文档引用ID`);
+                    console.log(`Upload successful but failed to get document reference ID`);
                     return null;
                 }
             } else {
-                console.log(`上传失败，状态码: ${response.status}`);
-                console.log(`错误信息: ${JSON.stringify(response.data)}`);
+                console.log(`Upload failed, status code: ${response.status}`);
+                console.log(`Error message: ${JSON.stringify(response.data)}`);
                 return null;
             }
 
         } catch (error) {
-            console.log(`上传文件时发生错误: ${error.message}`);
+            console.log(`Error occurred during file upload: ${error.message}`);
             return null;
         }
     }
 
     /**
-     * 检查文档处理状态
+     * Check document processing status
      * @param {string} docId
      * @returns {Promise<'done'|'failed'|'converting'|null>}
      */
@@ -282,7 +189,7 @@ class Doc2Markdown {
             if (response.status === 200) {
                 const data = response.data;
                 if (!data.success && data.success !== undefined) {
-                    console.log(`检查状态失败: ${data.err}`);
+                    console.log(`Status check failed: ${data.err}`);
                     return null;
                 }
                 const statusDetail = data.status_detail || {};
@@ -294,18 +201,18 @@ class Doc2Markdown {
                 }
                 return 'converting';
             } else {
-                console.log(`检查状态失败，状态码: ${response.status}，错误信息: ${JSON.stringify(response.data)}`);
+                console.log(`Status check failed, status code: ${response.status}, error message: ${JSON.stringify(response.data)}`);
                 return null;
             }
 
         } catch (error) {
-            console.log(`检查状态时发生错误: ${error.message}`);
+            console.log(`Error occurred during status check: ${error.message}`);
             return null;
         }
     }
 
     /**
-     * 获取转换后的markdown内容（zip包bytes）
+     * Get converted markdown content (zip package bytes)
      * @param {string} docId
      * @returns {Promise<Buffer|null>}
      */
@@ -322,18 +229,18 @@ class Doc2Markdown {
             if (response.status === 200) {
                 return response.data;
             } else {
-                console.log(`获取内容失败，状态码: ${response.status}`);
+                console.log(`Failed to get content, status code: ${response.status}`);
                 return null;
             }
 
         } catch (error) {
-            console.log(`获取内容时发生错误: ${error.message}`);
+            console.log(`Error occurred while getting content: ${error.message}`);
             return null;
         }
     }
 
     /**
-     * 轮询等待转换完成（最多POLL_TIMEOUT秒）
+     * Poll until conversion is complete (up to POLL_TIMEOUT seconds)
      * @param {string} docId
      * @param {string|null} filePath
      * @returns {Promise<[boolean, string]|[null, null]>}
@@ -343,25 +250,25 @@ class Doc2Markdown {
         while (elapsed < POLL_TIMEOUT) {
             const status = await this.checkStatus(docId);
             if (status === null) {
-                console.log("错误: 无法获取文档状态，请稍后重试");
+                console.log("Error: Unable to get document status, please try again later");
                 process.exit(1);
             }
             if (status === 'done') {
-                console.log(`  转换完成，正在下载...`);
+                console.log(`  Conversion complete, downloading...`);
                 const zipBytes = await this.getMarkdown(docId);
                 if (!zipBytes) {
-                    return [false, "获取markdown内容失败"];
+                    return [false, "Failed to get markdown content"];
                 }
                 const hint = filePath || `doc_${docId}.md`;
                 const outDir = await this.saveMarkdown(zipBytes, docId, hint);
                 if (!outDir) {
-                    return [false, "保存文件失败"];
+                    return [false, "Failed to save file"];
                 }
                 return [true, outDir];
             } else if (status === 'failed') {
-                return [false, "文档转换失败"];
+                return [false, "Document conversion failed"];
             } else {
-                console.log(`  转换中... 已等待 ${elapsed}s.`);
+                console.log(`  Converting... waited ${elapsed}s.`);
                 await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL * 1000));
                 elapsed += POLL_INTERVAL;
             }
@@ -371,87 +278,181 @@ class Doc2Markdown {
     }
 
     /**
-     * 上传文件并自动等待转换，超时则返回doc_id供后续查询
+     * Upload file and auto-poll for conversion, return doc_id if timeout
      * @param {string} filePath
      */
     async convertFile(filePath) {
-        // 1. 上传文件
-        console.log(`[1/3] 正在上传文件: ${filePath}`);
+        // 1. Upload file
+        console.log(`[1/3] Uploading file: ${filePath}`);
         const docId = await this.uploadFile(filePath);
         if (!docId) {
-            console.log(`文件上传失败！`);
+            console.log(`File upload failed!`);
             process.exit(1);
         }
-        console.log(`  上传成功，文档ID: ${docId}`);
+        console.log(`  Upload successful, document ID: ${docId}`);
 
-        // 2. 轮询等待（最多60秒）
-        console.log(`[2/3] 等待转换（自动检查）...`);
+        // 2. Poll and wait (up to 60 seconds)
+        console.log(`[2/3] Waiting for conversion (auto-checking)...`);
         const [result, detail] = await this.pollUntilDone(docId, filePath);
 
         if (result === true) {
-            console.log(`[3/3] 下载完成，文件已保存: ${detail}`);
+            console.log(`[3/3] Download complete, file saved: ${detail}`);
         } else if (result === false) {
-            console.log(`错误: ${detail}`);
+            console.log(`Error: ${detail}`);
             process.exit(1);
         } else {
-            console.log(`  文档ID: ${docId}`);
-            console.log(`[!] 文档仍在转换中（已超过 ${POLL_TIMEOUT}s）`);
-            console.log(`[!] 大文档通常需要更多时间，如遇系统高峰期需要排队转换，请耐心等待`);
-            console.log(`[!] 是否需要继续查询转换状态并下载`);
+            console.log(`  Document ID: ${docId}`);
+            console.log(`[!] Document still converting (exceeded ${POLL_TIMEOUT}s)`);
+            console.log(`[!] Large documents typically require more time. During peak hours, conversions may be queued. Please be patient`);
+            console.log(`[!] Do you need to continue checking conversion status and downloading`);
             process.exit(2);
         }
     }
 
     /**
-     * 通过doc_id检查状态并下载
+     * Extract zip to source file directory, returns output directory path
+     * @param {Buffer} zipBytes
+     * @param {string} docId
+     * @param {string} filePath
+     * @returns {Promise<string|null>}
+     */
+    async saveMarkdown(zipBytes, docId, filePath) {
+        try {
+            const parentDir = path.dirname(path.resolve(filePath));
+            const [fileId] = docId.split('-');
+            const markdownDirName = `${fileId}_` + path.parse(filePath).name;
+            const outDir = path.join(parentDir, markdownDirName);
+
+            if (!fs.existsSync(outDir)) {
+                fs.mkdirSync(outDir, { recursive: true });
+            }
+
+            const zlib = require('zlib');
+            const { pipeline } = require('stream/promises');
+
+            // Save zip temporarily
+            const tempZip = path.join(outDir, `temp_${Date.now()}.zip`);
+            fs.writeFileSync(tempZip, zipBytes);
+
+            // Parse ZIP central directory natively
+            const buffer = fs.readFileSync(tempZip);
+            let pos = buffer.length - 22;
+            while (pos > 0) {
+                if (
+                    buffer.readUInt32LE(pos) === 0x06054b50 &&
+                    pos + 22 <= buffer.length
+                )
+                    break;
+                pos--;
+            }
+
+            const entries = [];
+            const diskEntries = buffer.readUInt16LE(pos + 8);
+            const dirStart = buffer.readUInt32LE(pos + 16);
+            pos = dirStart;
+
+            for (let i = 0; i < diskEntries; i++) {
+                if (buffer.readUInt32LE(pos) !== 0x02014b50) break;
+                const flags = buffer.readUInt16LE(pos + 8);
+                const method = buffer.readUInt16LE(pos + 10);
+                const nameLen = buffer.readUInt16LE(pos + 28);
+                const extraLen = buffer.readUInt16LE(pos + 30);
+                const commentLen = buffer.readUInt16LE(pos + 32);
+                const offset = buffer.readUInt32LE(pos + 42);
+                const name = buffer.toString('utf8', pos + 46, pos + 46 + nameLen);
+                entries.push({ offset, method, name, encrypted: !!(flags & 1) });
+                pos += 46 + nameLen + extraLen + commentLen;
+            }
+
+            // Extract each file
+            for (const ent of entries) {
+                if (ent.encrypted || ent.name.endsWith('/')) continue;
+                const o = ent.offset;
+                const sig = buffer.readUInt32LE(o);
+                if (sig !== 0x04034b50) continue;
+                const nameLen = buffer.readUInt16LE(o + 26);
+                const extraLen = buffer.readUInt16LE(o + 28);
+                const csize = buffer.readUInt32LE(o + 18);
+                const usize = buffer.readUInt32LE(o + 14);
+                const dataStart = o + 30 + nameLen + extraLen;
+                const data = buffer.slice(dataStart, dataStart + csize);
+
+                const outPath = path.join(outDir, ent.name.replace(/\\/g, '/'));
+                const safeOutDir = path.resolve(outDir) + path.sep;
+                if (!path.resolve(outPath).startsWith(safeOutDir)) {
+                    throw new Error(`Unsafe ZIP entry path (path traversal): ${ent.name}`);
+                }
+                const outDirPath = path.dirname(outPath);
+                if (!fs.existsSync(outDirPath)) fs.mkdirSync(outDirPath, { recursive: true });
+
+                if (ent.method === 0) {
+                    fs.writeFileSync(outPath, data);
+                } else if (ent.method === 8) {
+                    const decompressed = zlib.inflateSync(data, { chunkSize: usize });
+                    fs.writeFileSync(outPath, decompressed);
+                }
+            }
+
+            fs.unlinkSync(tempZip);
+            return outDir;
+
+        } catch (error) {
+            console.log(`Error occurred while saving file: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Check status and download via doc_id
      * @param {string} docId
      * @param {string} filePath
      */
     async checkAndDownload(docId, filePath) {
-        console.log(`[1/2] 检查文档 ${docId} 的转换状态...`);
+        console.log(`[1/2] Checking conversion status for document ${docId}...`);
         const status = await this.checkStatus(docId);
         if (status === null) {
-            console.log("错误: 无法获取文档状态，请稍后重试");
+            console.log("Error: Unable to get document status, please retry later");
             process.exit(1);
         }
 
         if (status === 'failed') {
-            console.log("错误: 文档转换失败");
+            console.log("Error: Document conversion failed");
             process.exit(1);
         } else if (status === 'done') {
-            console.log(`  转换已完成，正在下载...`);
+            console.log(`  Conversion completed, downloading...`);
             const zipBytes = await this.getMarkdown(docId);
             if (!zipBytes) {
-                console.log("获取markdown内容失败");
+                console.log("Failed to get markdown content");
                 process.exit(1);
             }
             const outDir = await this.saveMarkdown(zipBytes, docId, filePath);
             if (!outDir) {
                 process.exit(1);
             }
-            console.log(`[2/2] 下载完成，文件已保存: ${outDir}`);
+            console.log(`[2/2] Download complete, file saved: ${outDir}`);
         } else {
-            console.log("  文档仍在转换中，继续等待...");
+            console.log("  Document still converting, waiting...");
             const [result, detail] = await this.pollUntilDone(docId, filePath);
             if (result === true) {
-                console.log(`[2/2] 下载完成，文件已保存: ${detail}`);
+                console.log(`[2/2] Download complete, file saved: ${detail}`);
             } else if (result === false) {
-                console.log(`错误: ${detail}`);
+                console.log(`Error: ${detail}`);
                 process.exit(1);
             } else {
-                console.log(`[!] 文档仍在转换中，请稍后再试`);
-                console.log(`  文档ID: ${docId}`);
+                console.log(`[!] Document still converting, please retry later`);
+                console.log(`  Document ID: ${docId}`);
                 process.exit(2);
             }
         }
     }
+
 }
 
-const USAGE = `用法:
-  node doc2markdown-native.js convert <文件路径>          上传并转换文档
-  node doc2markdown-native.js check  <文档ID> <文件路径>   查询状态并下载
+const USAGE = `Usage:
+  node doc2markdown-native.js convert <file_path>          Upload and convert document
+  node doc2markdown-native.js check  <doc_id> <file_path>   Check status and download
 
-示例:
+Examples:
   node doc2markdown-native.js convert report.pdf
   node doc2markdown-native.js check 123-f3ce07 report.pdf`;
 
@@ -467,14 +468,14 @@ async function main() {
 
     if (cmd === "convert") {
         if (process.argv.length !== 4) {
-            console.log("用法: node doc2markdown-native.js convert <文件路径>");
+            console.log("Usage: node doc2markdown-native.js convert <file_path>");
             process.exit(1);
         }
         await converter.convertFile(process.argv[3]);
 
     } else if (cmd === "check") {
         if (process.argv.length !== 5) {
-            console.log("用法: node doc2markdown-native.js check <文档ID> <文件路径>");
+            console.log("Usage: node doc2markdown-native.js check <doc_id> <file_path>");
             process.exit(1);
         }
         const docId = process.argv[3];
@@ -482,11 +483,11 @@ async function main() {
         await converter.checkAndDownload(docId, filePath);
 
     } else {
-        // 兼容：直接传文件路径视为 convert
+        // Backward compatibility: treat direct file path as convert
         if (fs.existsSync(cmd) && fs.statSync(cmd).isFile()) {
             await converter.convertFile(cmd);
         } else {
-            console.log(`未知命令: ${cmd}`);
+            console.log(`Unknown command: ${cmd}`);
             console.log(USAGE);
             process.exit(1);
         }
@@ -495,7 +496,7 @@ async function main() {
 
 if (require.main === module) {
     main().catch(error => {
-        console.error(`程序执行错误: ${error.message}`);
+        console.error(`Program execution error: ${error.message}`);
         process.exit(1);
     });
 }
