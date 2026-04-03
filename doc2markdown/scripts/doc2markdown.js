@@ -240,12 +240,63 @@ class Doc2Markdown {
     }
 
     /**
+     * Get converted markdown content as single MD file (not zip)
+     * @param {string} docId
+     * @returns {Promise<Buffer|null>}
+     */
+    async getMarkdownFile(docId) {
+        try {
+            const url = `${this.BASE_URL}/v1/skills/doc2markdown/light/download?doc_id=${encodeURIComponent(docId)}`;
+
+            const response = await this.request(url, {
+                method: 'GET',
+                timeout: 30000,
+                responseType: 'arraybuffer'
+            });
+
+            if (response.status === 200) {
+                return response.data;
+            } else {
+                console.log(`Failed to get content, status code: ${response.status}`);
+                return null;
+            }
+
+        } catch (error) {
+            console.log(`Error occurred while getting content: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Save markdown as single file to source file directory (same level as source)
+     * @param {Buffer} markdownBytes  Markdown file content
+     * @param {string} filePath       Original source file path
+     * @returns {Promise<string|null>} Saved markdown file path
+     */
+    async saveMarkdownFile(markdownBytes, filePath) {
+        try {
+            const parentDir = path.dirname(path.resolve(filePath));
+            const baseName = path.parse(filePath).name;
+            const outputFileName = `${baseName}.md`;
+            const outPath = path.join(parentDir, outputFileName);
+
+            fs.writeFileSync(outPath, markdownBytes);
+            return outPath;
+
+        } catch (error) {
+            console.log(`Error occurred while saving file: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
      * Poll until conversion is complete (up to POLL_TIMEOUT seconds)
      * @param {string} docId
      * @param {string|null} filePath
+     * @param {boolean} mdOnly - if true, download as single MD file instead of ZIP
      * @returns {Promise<[boolean, string]|[null, null]>}
      */
-    async pollUntilDone(docId, filePath = null) {
+    async pollUntilDone(docId, filePath = null, mdOnly = false) {
         let elapsed = 0;
         while (elapsed < POLL_TIMEOUT) {
             const status = await this.checkStatus(docId);
@@ -255,16 +306,29 @@ class Doc2Markdown {
             }
             if (status === 'done') {
                 console.log(`  Conversion complete, downloading...`);
-                const zipBytes = await this.getMarkdown(docId);
-                if (!zipBytes) {
-                    return [false, "Failed to get markdown content"];
+                if (mdOnly) {
+                    const markdownBytes = await this.getMarkdownFile(docId);
+                    if (!markdownBytes) {
+                        return [false, "Failed to get markdown content"];
+                    }
+                    const hint = filePath || `${docId}.md`;
+                    const outFilePath = await this.saveMarkdownFile(markdownBytes, hint);
+                    if (!outFilePath) {
+                        return [false, "Failed to save file"];
+                    }
+                    return [true, outFilePath];
+                } else {
+                    const zipBytes = await this.getMarkdown(docId);
+                    if (!zipBytes) {
+                        return [false, "Failed to get markdown content"];
+                    }
+                    const hint = filePath || `doc_${docId}.md`;
+                    const outDir = await this.saveMarkdown(zipBytes, docId, hint);
+                    if (!outDir) {
+                        return [false, "Failed to save file"];
+                    }
+                    return [true, outDir];
                 }
-                const hint = filePath || `doc_${docId}.md`;
-                const outDir = await this.saveMarkdown(zipBytes, docId, hint);
-                if (!outDir) {
-                    return [false, "Failed to save file"];
-                }
-                return [true, outDir];
             } else if (status === 'failed') {
                 return [false, "Document conversion failed"];
             } else {
@@ -280,8 +344,9 @@ class Doc2Markdown {
     /**
      * Upload file and auto-poll for conversion, return doc_id if timeout
      * @param {string} filePath
+     * @param {boolean} mdOnly - if true, download as single MD file instead of ZIP
      */
-    async convertFile(filePath) {
+    async convertFile(filePath, mdOnly = false) {
         // 1. Upload file
         console.log(`[1/3] Uploading file: ${filePath}`);
         const docId = await this.uploadFile(filePath);
@@ -293,7 +358,7 @@ class Doc2Markdown {
 
         // 2. Poll and wait (up to 60 seconds)
         console.log(`[2/3] Waiting for conversion (auto-checking)...`);
-        const [result, detail] = await this.pollUntilDone(docId, filePath);
+        const [result, detail] = await this.pollUntilDone(docId, filePath, mdOnly);
 
         if (result === true) {
             console.log(`[3/3] Download complete, file saved: ${detail}`);
@@ -303,8 +368,12 @@ class Doc2Markdown {
         } else {
             console.log(`  Document ID: ${docId}`);
             console.log(`[!] Document still converting (exceeded ${POLL_TIMEOUT}s)`);
-            console.log(`[!] Large documents typically require more time. During peak hours, conversions may be queued. Please be patient`);
-            console.log(`[!] Do you need to continue checking conversion status and downloading`);
+            if (mdOnly) {
+                console.log(`[!] When conversion completes, use: node scripts/doc2markdown.js check ${docId} "${filePath}" --md`);
+            } else {
+                console.log(`[!] Large documents typically require more time. During peak hours, conversions may be queued. Please be patient`);
+                console.log(`[!] Do you need to continue checking conversion status and downloading`);
+            }
             process.exit(2);
         }
     }
@@ -406,8 +475,9 @@ class Doc2Markdown {
      * Check status and download via doc_id
      * @param {string} docId
      * @param {string} filePath
+     * @param {boolean} mdOnly - if true, download as single MD file instead of ZIP
      */
-    async checkAndDownload(docId, filePath) {
+    async checkAndDownload(docId, filePath, mdOnly = false) {
         console.log(`[1/2] Checking conversion status for document ${docId}...`);
         const status = await this.checkStatus(docId);
         if (status === null) {
@@ -420,19 +490,32 @@ class Doc2Markdown {
             process.exit(1);
         } else if (status === 'done') {
             console.log(`  Conversion completed, downloading...`);
-            const zipBytes = await this.getMarkdown(docId);
-            if (!zipBytes) {
-                console.log("Failed to get markdown content");
-                process.exit(1);
+            if (mdOnly) {
+                const markdownBytes = await this.getMarkdownFile(docId);
+                if (!markdownBytes) {
+                    console.log("Failed to get markdown content");
+                    process.exit(1);
+                }
+                const outFilePath = await this.saveMarkdownFile(markdownBytes, filePath);
+                if (!outFilePath) {
+                    process.exit(1);
+                }
+                console.log(`[2/2] Download complete, file saved: ${outFilePath}`);
+            } else {
+                const zipBytes = await this.getMarkdown(docId);
+                if (!zipBytes) {
+                    console.log("Failed to get markdown content");
+                    process.exit(1);
+                }
+                const outDir = await this.saveMarkdown(zipBytes, docId, filePath);
+                if (!outDir) {
+                    process.exit(1);
+                }
+                console.log(`[2/2] Download complete, file saved: ${outDir}`);
             }
-            const outDir = await this.saveMarkdown(zipBytes, docId, filePath);
-            if (!outDir) {
-                process.exit(1);
-            }
-            console.log(`[2/2] Download complete, file saved: ${outDir}`);
         } else {
             console.log("  Document still converting, waiting...");
-            const [result, detail] = await this.pollUntilDone(docId, filePath);
+            const [result, detail] = await this.pollUntilDone(docId, filePath, mdOnly);
             if (result === true) {
                 console.log(`[2/2] Download complete, file saved: ${detail}`);
             } else if (result === false) {
@@ -449,12 +532,15 @@ class Doc2Markdown {
 }
 
 const USAGE = `Usage:
-  node doc2markdown-native.js convert <file_path>          Upload and convert document
-  node doc2markdown-native.js check  <doc_id> <file_path>   Check status and download
+  node doc2markdown.js convert <file_path> [--md]        Upload and convert document (default: download ZIP package)
+  node doc2markdown.js check  <doc_id> <file_path> [--md] Check status and download
+                                                          --md: Download as single MD file instead of ZIP package
 
 Examples:
-  node doc2markdown-native.js convert report.pdf
-  node doc2markdown-native.js check 123-f3ce07 report.pdf`;
+  node doc2markdown.js convert report.pdf
+  node doc2markdown.js convert report.pdf --md
+  node doc2markdown.js check 123-f3ce07 report.pdf
+  node doc2markdown.js check 123-f3ce07 report.pdf --md`;
 
 
 async function main() {
@@ -466,26 +552,29 @@ async function main() {
     const converter = new Doc2Markdown();
     const cmd = process.argv[2];
 
+    // Parse --md flag
+    const mdOnly = process.argv.includes('--md');
+
     if (cmd === "convert") {
-        if (process.argv.length !== 4) {
-            console.log("Usage: node doc2markdown-native.js convert <file_path>");
+        if (process.argv.length < 4 || process.argv.length > 5) {
+            console.log("Usage: node doc2markdown.js convert <file_path> [--md]");
             process.exit(1);
         }
-        await converter.convertFile(process.argv[3]);
+        await converter.convertFile(process.argv[3], mdOnly);
 
     } else if (cmd === "check") {
-        if (process.argv.length !== 5) {
-            console.log("Usage: node doc2markdown-native.js check <doc_id> <file_path>");
+        if (process.argv.length < 5 || process.argv.length > 6) {
+            console.log("Usage: node doc2markdown.js check <doc_id> <file_path> [--md]");
             process.exit(1);
         }
         const docId = process.argv[3];
         const filePath = process.argv[4];
-        await converter.checkAndDownload(docId, filePath);
+        await converter.checkAndDownload(docId, filePath, mdOnly);
 
     } else {
         // Backward compatibility: treat direct file path as convert
         if (fs.existsSync(cmd) && fs.statSync(cmd).isFile()) {
-            await converter.convertFile(cmd);
+            await converter.convertFile(cmd, mdOnly);
         } else {
             console.log(`Unknown command: ${cmd}`);
             console.log(USAGE);
