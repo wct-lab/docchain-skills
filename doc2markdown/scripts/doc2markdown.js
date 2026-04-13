@@ -175,7 +175,7 @@ class Doc2Markdown {
     /**
      * Check document processing status
      * @param {string} docId
-     * @returns {Promise<'done'|'failed'|'converting'|null>}
+     * @returns {Promise<{status: 'done'|'failed'|'converting', error: string}|null>}
      */
     async checkStatus(docId) {
         try {
@@ -195,11 +195,11 @@ class Doc2Markdown {
                 const statusDetail = data.status_detail || {};
                 const convertStatus = (statusDetail.convert_md || {}).state;
                 if (convertStatus === '1') {
-                    return 'done';
+                    return { status: 'done', error: '' };
                 } else if (convertStatus === '3') {
-                    return 'failed';
+                    return { status: 'failed', error: statusDetail.error || '' };
                 }
-                return 'converting';
+                return { status: 'converting', error: '' };
             } else {
                 console.log(`Status check failed, status code: ${response.status}, error message: ${JSON.stringify(response.data)}`);
                 return null;
@@ -299,12 +299,12 @@ class Doc2Markdown {
     async pollUntilDone(docId, filePath = null, mdOnly = false) {
         let elapsed = 0;
         while (elapsed < POLL_TIMEOUT) {
-            const status = await this.checkStatus(docId);
-            if (status === null) {
+            const result = await this.checkStatus(docId);
+            if (result === null) {
                 console.log("Error: Unable to get document status, please try again later");
                 process.exit(1);
             }
-            if (status === 'done') {
+            if (result.status === 'done') {
                 console.log(`  Conversion complete, downloading...`);
                 if (mdOnly) {
                     const markdownBytes = await this.getMarkdownFile(docId);
@@ -329,8 +329,9 @@ class Doc2Markdown {
                     }
                     return [true, outDir];
                 }
-            } else if (status === 'failed') {
-                return [false, "Document conversion failed"];
+            } else if (result.status === 'failed') {
+                const reason = result.error ? `: ${result.error}` : '';
+                return [false, `Document conversion failed${reason}`];
             } else {
                 console.log(`  Converting... waited ${elapsed}s.`);
                 await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL * 1000));
@@ -479,16 +480,17 @@ class Doc2Markdown {
      */
     async checkAndDownload(docId, filePath, mdOnly = false) {
         console.log(`[1/2] Checking conversion status for document ${docId}...`);
-        const status = await this.checkStatus(docId);
-        if (status === null) {
+        const result = await this.checkStatus(docId);
+        if (result === null) {
             console.log("Error: Unable to get document status, please retry later");
             process.exit(1);
         }
 
-        if (status === 'failed') {
-            console.log("Error: Document conversion failed");
+        if (result.status === 'failed') {
+            const reason = result.error ? `: ${result.error}` : '';
+            console.log(`Error: Document conversion failed${reason}`);
             process.exit(1);
-        } else if (status === 'done') {
+        } else if (result.status === 'done') {
             console.log(`  Conversion completed, downloading...`);
             if (mdOnly) {
                 const markdownBytes = await this.getMarkdownFile(docId);
