@@ -38,10 +38,10 @@ node scripts/doc2markdown.js check <doc_id> <original_file_path> --md  # Downloa
 
 This tool supports two download modes:
 
-- **Default (MD package)**: Downloads and extracts a ZIP package to `{doc_id}_{filename}/` in the source file's parent directory. Includes images and tables in HTML format
+- **MD package**: Downloads and extracts a ZIP package to `{doc_id}_{filename}/` in the source file's parent directory. Includes images and tables in HTML format
 - **`--md` mode**: Downloads a single merged MD file to the source file's parent directory. Images are not included
 
-> **Tip**: Default mode downloads MD package. If user needs a single MD file only, use `--md` flag
+> **Tip**: Default mode downloads a single MD file using `--md`. If user needs the full MD package with images, omit the `--md` flag
 
 ## Workflow
 
