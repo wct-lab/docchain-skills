@@ -86,6 +86,27 @@ class Markdown2Doc {
     }
 
     /**
+     * Check path traversal
+     * Only allow files inside markdown directory
+     */
+    isPathSafe(baseDir, targetPath) {
+        try {
+            const resolvedBase = path.resolve(baseDir);
+            const resolvedTarget = path.resolve(targetPath);
+
+            // 防止 /dir1 和 /dir11 误判
+            const baseWithSep = resolvedBase.endsWith(path.sep)
+                ? resolvedBase
+                : resolvedBase + path.sep;
+
+            return resolvedTarget.startsWith(baseWithSep);
+
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
      * Extract image references from markdown content
      * @param {string} mdContent - Markdown content
      * @returns {Array<{fullSyntax: string, alt: string, path: string, isLocal: boolean}>}
@@ -218,6 +239,12 @@ class Markdown2Doc {
                     imgAbsPath = img.path;
                 } else {
                     imgAbsPath = path.resolve(mdFileDir, img.path);
+                }
+
+                // SECURITY: prevent path traversal
+                if (!this.isPathSafe(mdFileDir, imgAbsPath)) {
+                    console.log(`  Security warning: Path traversal blocked: ${imgAbsPath}`);
+                    continue;
                 }
 
                 if (fs.existsSync(imgAbsPath)) {

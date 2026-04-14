@@ -20,9 +20,11 @@ node scripts/markdown2doc.js convert <file_path> pdf        # Output: same_name.
 - Supported output formats: PDF
 - Preserves markdown structure, headings, lists, tables, and code blocks
 - Generates a navigable table of contents with heading hierarchy
-- Embeds images referenced in the markdown into the output PDF, including both local images and URL images
+- Embeds images referenced in the markdown into the output PDF, including both local images
 - No API Key or account required, minimal external dependencies
 - Output file is saved to the same directory as the source markdown file
+
+> **Note on local images:** To ensure local images are correctly embedded in the PDF, image files must be located in the **same directory as the markdown file, or in a subdirectory** of it (e.g., `./images/photo.png`). Images referenced via absolute paths or paths pointing outside the markdown file's directory will be skipped for security reasons.
 
 ## When to Use
 
@@ -42,9 +44,10 @@ node scripts/markdown2doc.js convert <file_path> pdf        # Output: same_name.
 
 ## Data & Privacy
 
-- `convert` sends markdown content to the docchain cloud service (`lab.hjcloud.com`) for processing. The markdown content is transmitted to generate the output document.
+- `convert` sends **both the markdown file content and all locally referenced image files** to the docchain cloud service (`lab.hjcloud.com`) for processing.
+- Any local image path referenced in the markdown (e.g., `![](./images/photo.png)`) will be read from disk and uploaded along with the markdown content.
 - All transfers use HTTPS encryption.
-- Users should ensure that markdown content does not contain sensitive or confidential information unless they have verified the service's data handling practices.
+- **Users are responsible for ensuring that neither the markdown content nor any referenced image files contain sensitive, confidential, or proprietary information.** Use of this skill constitutes acceptance of the data transmission described above.
 - Service endpoint: https://lab.hjcloud.com/llmdoc
 
 ## Feedback & Support
